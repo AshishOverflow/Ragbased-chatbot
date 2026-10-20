@@ -1,0 +1,53 @@
+# Environment & secrets (keep .env.example tracked)
+.env
+.env.*
+!.env.example
+*.env
+
+# Python & Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Frontend builds
+node_modules/
+dist/
+dist-ssr/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local application data & caches
+data/
+uploads/
+chroma_data/
+hf_cache/
+*.pdf
+
+# macOS system files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows system files
+Thumbs.db
+ehthumbs.db
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+

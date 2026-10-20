@@ -1,0 +1,50 @@
+services:
+  chroma:
+    image: chromadb/chroma:1.5.9   # keep in step with chromadb-client in backend/requirements.txt
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    volumes:
+      - chroma_data:/data
+    restart: unless-stopped
+    # No published ports: only the backend needs to reach it.
+
+  backend:
+    build: ./backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    volumes:
+      - uploads:/data
+      - hf_cache:/cache
+    depends_on:
+      - chroma
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    environment:
+      # Called by the *browser*, so this must be an address reachable from your machine
+      # (the published backend port), not a Docker service name.
+      VITE_API_BASE_URL: http://localhost:${API_PORT:-8000}
+    ports:
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  chroma_data:
+  uploads:
+  hf_cache:

@@ -1,0 +1,7 @@
+fastapi==0.150.0
+uvicorn==0.54.0
+python-multipart==0.0.32
+pymupdf==1.28.2
+sentence-transformers==6.1.0
+chromadb-client==1.5.9
+httpx==0.28.1

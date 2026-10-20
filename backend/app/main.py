@@ -1,0 +1,208 @@
+import asyncio
+import json
+import logging
+import os
+import threading
+import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Annotated, Callable, TypeVar
+
+import httpx
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, StringConstraints
+
+from . import config, embeddings, llm, store
+from .pdf import PDFError, chunk_pages, extract_pages
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("app")
+T = TypeVar("T")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(embeddings.model)
+    yield
+
+
+app = FastAPI(title="Local PDF RAG", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=config.CORS_ORIGINS,
+    allow_methods=["GET", "POST"],
+    allow_headers=["content-type"],
+)
+upload_lock = threading.Lock()
+
+
+def _store(fn: Callable[..., T], *args) -> T:
+    try:
+        return fn(*args)
+    except Exception:
+        log.exception("ChromaDB call failed")
+        raise HTTPException(503, "The vector store (ChromaDB) is unavailable.")
+
+
+def _save_upload(file: UploadFile, dest: Path) -> None:
+    limit = config.MAX_UPLOAD_MB * 1024 * 1024
+    size = 0
+    head = b""
+    with dest.open("wb") as out:
+        while block := file.file.read(1024 * 1024):
+            if not head:
+                head = block[:1024]
+            size += len(block)
+            if size > limit:
+                raise HTTPException(413, f"File exceeds the {config.MAX_UPLOAD_MB} MB limit.")
+            out.write(block)
+    if b"%PDF-" not in head:
+        raise HTTPException(400, "The file is not a valid PDF.")
+
+
+@app.post("/api/upload")
+def upload(file: Annotated[UploadFile, File()]) -> dict:
+    if not upload_lock.acquire(blocking=False):
+        raise HTTPException(409, "Another upload is being processed. Try again shortly.")
+    config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = config.UPLOAD_DIR / f".incoming-{uuid.uuid4().hex}"
+    try:
+        _save_upload(file, tmp)
+        try:
+            page_count, pages = extract_pages(tmp)
+        except PDFError as e:
+            raise HTTPException(400, str(e))
+        if not pages:
+            raise HTTPException(
+                422, "No extractable text found. Scanned/image-only PDFs need OCR, which is not supported."
+            )
+
+        chunks = chunk_pages(pages, embeddings.token_spans, config.CHUNK_TOKENS, config.CHUNK_OVERLAP)
+        vectors = embeddings.embed_passages([c.text for c in chunks])
+
+        doc_id = uuid.uuid4().hex
+        filename = Path(file.filename or "document.pdf").name
+        _store(store.replace_index, doc_id, filename, page_count, chunks, vectors)
+
+        final = config.UPLOAD_DIR / f"{doc_id}.pdf"
+        os.replace(tmp, final)
+        for old in config.UPLOAD_DIR.glob("*.pdf"):
+            if old != final:
+                old.unlink(missing_ok=True)
+        log.info("Indexed %s: %d pages, %d chunks", filename, page_count, len(chunks))
+        return {"doc_id": doc_id, "filename": filename, "pages": page_count, "chunks": len(chunks)}
+    finally:
+        tmp.unlink(missing_ok=True)
+        upload_lock.release()
+
+
+class ChatRequest(BaseModel):
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+
+
+def _retrieve(question: str) -> list[store.Hit]:
+    doc = _store(store.current_document)
+    if doc is None:
+        raise HTTPException(409, "No PDF has been uploaded yet.")
+    vector = embeddings.embed_query(question)
+    return _store(store.search, vector, doc["doc_id"], config.TOP_K)
+
+
+def _sse(event: str, data: object) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+@app.post("/api/chat")
+async def chat(req: ChatRequest) -> StreamingResponse:
+    hits = await run_in_threadpool(_retrieve, req.question)
+    messages = llm.build_messages(req.question, hits)
+
+    async def events():
+        yield _sse("sources", sorted({h.page for h in hits}))
+        try:
+            async for text in llm.stream_answer(messages):
+                yield _sse("token", {"text": text})
+        except llm.LLMError as e:
+            log.error("LLM failure: %s", e)
+            yield _sse("error", {"message": str(e)})
+            return
+        except Exception:
+            log.exception("Unexpected error while streaming")
+            yield _sse("error", {"message": "Unexpected error while generating the answer."})
+            return
+        yield _sse("done", {})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+async def _check_ollama() -> dict:
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{config.LLM_BASE_URL}/api/tags")
+            r.raise_for_status()
+        names = {m.get("name") for m in r.json().get("models", [])}
+        available = config.LLM_MODEL in names or f"{config.LLM_MODEL}:latest" in names
+        out = {"ok": available, "model": config.LLM_MODEL, "model_available": available}
+        if not available:
+            out["error"] = f"Model not found in Ollama. Run: ollama pull {config.LLM_MODEL}"
+        return out
+    except Exception as e:
+        return {"ok": False, "model": config.LLM_MODEL, "error": repr(e)}
+
+
+async def _check_openai() -> dict:
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{config.LLM_BASE_URL}/v1/models")
+            r.raise_for_status()
+        models = [m.get("id") for m in r.json().get("data", [])]
+        available = bool(models)
+        exact_match = config.LLM_MODEL in models if config.LLM_MODEL else False
+        out = {
+            "ok": available,
+            "provider": config.LLM_PROVIDER,
+            "model": config.LLM_MODEL,
+            "models_available": models,
+            "model_available": exact_match or available,
+        }
+        if not available:
+            out["error"] = "No models loaded in LM Studio. Please start the server and load a model."
+        return out
+    except Exception as e:
+        return {"ok": False, "provider": config.LLM_PROVIDER, "model": config.LLM_MODEL, "error": repr(e)}
+
+
+async def _check_llm() -> dict:
+    if config.LLM_PROVIDER in ("lmstudio", "openai"):
+        return await _check_openai()
+    return await _check_ollama()
+
+
+def _check_chroma() -> dict:
+    try:
+        store.ping()
+        return {"ok": True, "document": store.current_document()}
+    except Exception as e:
+        return {"ok": False, "error": repr(e)}
+
+
+@app.get("/api/health")
+async def health() -> JSONResponse:
+    chroma, llm_status = await asyncio.gather(asyncio.to_thread(_check_chroma), _check_llm())
+    ok = chroma["ok"] and llm_status["ok"]
+    body = {
+        "status": "ok" if ok else "degraded",
+        "chroma": chroma,
+        "llm": llm_status,
+        "ollama": llm_status,  # backwards compatibility with tests and callers
+        "embedding_model_loaded": embeddings.is_loaded(),
+    }
+    return JSONResponse(body, status_code=200 if ok else 503)
