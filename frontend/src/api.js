@@ -55,7 +55,7 @@ function parseBlock(block) {
 // POST /api/chat and read the Server-Sent Events incrementally from the response body.
 // Resolves only after a `done` event; rejects on an `error` event, a bad HTTP status,
 // a dropped connection, or a stream that ends without `done`.
-export async function streamChat(question, { onSources, onToken, signal }) {
+export async function streamChat(question, { onSources, onToken, onThinking, signal }) {
   let res;
   try {
     res = await fetch(`${API_BASE}/api/chat`, {
@@ -80,10 +80,13 @@ export async function streamChat(question, { onSources, onToken, signal }) {
   const handle = (block) => {
     if (!block.trim()) return false;
     const [event, data] = parseBlock(block);
-    if (event === "sources") onSources(data);
-    else if (event === "token") {
+    if (event === "sources") onSources?.(data);
+    else if (event === "thinking") {
       tokens += 1;
-      onToken(data.text);
+      onThinking?.(data?.text || "");
+    } else if (event === "token") {
+      tokens += 1;
+      onToken?.(data?.text || "");
     } else if (event === "error") throw new Error(data?.message || "The answer could not be generated.");
     else if (event === "done") {
       if (tokens === 0) throw new Error("The model returned an empty response.");

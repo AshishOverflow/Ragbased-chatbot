@@ -124,8 +124,9 @@ async def chat(req: ChatRequest) -> StreamingResponse:
     async def events():
         yield _sse("sources", sorted({h.page for h in hits}))
         try:
-            async for text in llm.stream_answer(messages):
-                yield _sse("token", {"text": text})
+            async for chunk in llm.stream_answer(messages):
+                event_type = "thinking" if getattr(chunk, "is_thinking", False) else "token"
+                yield _sse(event_type, {"text": str(chunk)})
         except llm.LLMError as e:
             log.error("LLM failure: %s", e)
             yield _sse("error", {"message": str(e)})
