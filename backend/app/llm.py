@@ -144,3 +144,17 @@ async def stream_answer(
     else:
         async for text in _stream_ollama(messages, transport=transport):
             yield text
+
+
+async def complete(
+    messages: list[dict[str, str]], transport: httpx.AsyncBaseTransport | None = None
+) -> str:
+    """Collect a full answer, dropping reasoning tokens."""
+    parts: list[str] = []
+    async for chunk in stream_answer(messages, transport=transport):
+        if not chunk.is_thinking:
+            parts.append(str(chunk))
+    text = "".join(parts).strip()
+    if not text:
+        raise LLMError("The model returned an empty response.")
+    return text

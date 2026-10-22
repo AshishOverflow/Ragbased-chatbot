@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Annotated, Callable, TypeVar
 
 import httpx
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -17,6 +17,8 @@ from pydantic import BaseModel, StringConstraints
 
 from . import config, embeddings, llm, store
 from .pdf import PDFError, chunk_pages, extract_pages
+from .slides import SlideError
+from .study import DocumentError, build_messages, detect_kind, fit_source, load_units, parse_cards
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app")
@@ -48,7 +50,8 @@ def _store(fn: Callable[..., T], *args) -> T:
         raise HTTPException(503, "The vector store (ChromaDB) is unavailable.")
 
 
-def _save_upload(file: UploadFile, dest: Path) -> None:
+def _write_upload(file: UploadFile, dest: Path) -> bytes:
+    """Save an upload within the size limit and return its first bytes."""
     limit = config.MAX_UPLOAD_MB * 1024 * 1024
     size = 0
     head = b""
@@ -60,6 +63,11 @@ def _save_upload(file: UploadFile, dest: Path) -> None:
             if size > limit:
                 raise HTTPException(413, f"File exceeds the {config.MAX_UPLOAD_MB} MB limit.")
             out.write(block)
+    return head
+
+
+def _save_upload(file: UploadFile, dest: Path) -> None:
+    head = _write_upload(file, dest)
     if b"%PDF-" not in head:
         raise HTTPException(400, "The file is not a valid PDF.")
 
@@ -102,6 +110,56 @@ def upload(file: Annotated[UploadFile, File()]) -> dict:
 
 class ChatRequest(BaseModel):
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+
+
+@app.post("/api/study")
+async def study(
+    file: Annotated[UploadFile, File()],
+    count: Annotated[int, Form()] = 12,
+) -> dict:
+    """Build flashcards from one PDF or .pptx. Does not replace the chat index."""
+    if not 4 <= count <= 24:
+        raise HTTPException(422, "Ask for between 4 and 24 flashcards.")
+    if not upload_lock.acquire(blocking=False):
+        raise HTTPException(409, "Another upload is being processed. Try again shortly.")
+    tmp = None
+    try:
+        config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = config.UPLOAD_DIR / f".study-{uuid.uuid4().hex}"
+        head = await run_in_threadpool(_write_upload, file, tmp)
+        try:
+            kind = detect_kind(file.filename or "", head)
+            label, unit_count, units = await run_in_threadpool(load_units, tmp, kind)
+        except (DocumentError, PDFError, SlideError) as e:
+            raise HTTPException(400, str(e))
+        if not units:
+            raise HTTPException(
+                422,
+                "No extractable text found. Scanned pages and image-only slides are not supported.",
+            )
+        messages = build_messages(fit_source(units, label), count)
+        try:
+            raw = await llm.complete(messages)
+            cards = parse_cards(raw, count)
+        except llm.LLMError as e:
+            log.error("Study generation failed: %s", e)
+            raise HTTPException(502, str(e))
+        except (ValueError, json.JSONDecodeError):
+            log.error("Study model returned unusable cards")
+            raise HTTPException(502, "The model did not return usable flashcards. Try again.")
+        filename = Path(file.filename or "document").name
+        log.info("Study cards for %s: %d from %d %ss", filename, len(cards), unit_count, label.lower())
+        return {
+            "filename": filename,
+            "kind": kind,
+            "units": unit_count,
+            "unit_label": label,
+            "cards": cards,
+        }
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+        upload_lock.release()
 
 
 def _retrieve(question: str) -> list[store.Hit]:

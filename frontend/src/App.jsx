@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getIndexedDocument, streamChat, uploadPdf } from "./api.js";
+import StudyMode from "./StudyMode.jsx";
 
 const MAX_QUESTION = 2000;
 let nextId = 0;
@@ -98,6 +99,7 @@ function Message({ msg }) {
 }
 
 export default function App() {
+  const [mode, setMode] = useState("chat");
   const [indexed, setIndexed] = useState(null);
   const [upload, setUpload] = useState({ status: "idle", name: "", error: "" });
   const [messages, setMessages] = useState([]);
@@ -237,20 +239,36 @@ export default function App() {
           </div>
           <div className="brand-titles">
             <h1 className="brand-name">PDF Chat</h1>
-            <p className="brand-caption">Chat with your PDF</p>
+            <p className="brand-caption">
+              {mode === "study" ? "Flashcards from a PDF or PowerPoint" : "Chat with your PDF"}
+            </p>
           </div>
         </div>
 
-        {indexed && (
-          <div className="header-status-pill" title={`Active: ${indexed.filename}`}>
-            <span className="status-dot online"></span>
-            <span className="status-filename">{indexed.filename}</span>
-            <span className="status-pages">{indexed.pages}p</span>
+        <div className="header-actions">
+          <div className="mode-switch" role="group" aria-label="Mode">
+            <button type="button" aria-pressed={mode === "chat"} onClick={() => setMode("chat")}>
+              Chat
+            </button>
+            <button type="button" aria-pressed={mode === "study"} onClick={() => setMode("study")}>
+              Study
+            </button>
           </div>
-        )}
+          {mode === "chat" && indexed && (
+            <div className="header-status-pill" title={`Active: ${indexed.filename}`}>
+              <span className="status-dot online"></span>
+              <span className="status-filename">{indexed.filename}</span>
+              <span className="status-pages">{indexed.pages}p</span>
+            </div>
+          )}
+        </div>
       </header>
 
-      {/* Main Chat Viewport */}
+      {mode === "study" ? (
+        <main className="chat-container">
+          <StudyMode />
+        </main>
+      ) : (
       <main className="chat-container" ref={scrollRef} onScroll={onScroll}>
         {messages.length === 0 ? (
           <div className="empty-hero">
@@ -309,8 +327,9 @@ export default function App() {
           </div>
         )}
       </main>
+      )}
 
-      {/* Modern Composer Bar with integrated attach/replace button */}
+      {mode === "chat" && (
       <footer className="composer-container">
         <div className="composer-card">
           {/* Document Attachment Banner */}
@@ -408,6 +427,7 @@ export default function App() {
           </div>
         </div>
       </footer>
+      )}
     </div>
   );
 }

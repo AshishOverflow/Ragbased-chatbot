@@ -1,34 +1,6 @@
 import json
 
-import pytest
-from fastapi.testclient import TestClient
-
-from app import config, embeddings, llm, main, store
-from tests.conftest import spans
-
-
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "UPLOAD_DIR", tmp_path / "uploads")
-    monkeypatch.setattr(config, "CHUNK_TOKENS", 5)
-    monkeypatch.setattr(config, "CHUNK_OVERLAP", 1)
-    monkeypatch.setattr(embeddings, "token_spans", spans)
-    monkeypatch.setattr(embeddings, "embed_passages", lambda texts: [[1.0, 0.0] for _ in texts])
-    monkeypatch.setattr(embeddings, "embed_query", lambda q: [1.0, 0.0])
-
-    db: dict = {"doc": None, "chunks": []}
-
-    def replace_index(doc_id, filename, pages, chunks, vectors):
-        db["doc"] = {"doc_id": doc_id, "filename": filename, "pages": pages, "chunks": len(chunks)}
-        db["chunks"] = list(chunks)
-
-    monkeypatch.setattr(store, "replace_index", replace_index)
-    monkeypatch.setattr(store, "current_document", lambda: db["doc"])
-    monkeypatch.setattr(store, "search", lambda v, d, k: [store.Hit(c.page, c.text) for c in db["chunks"][:k]])
-    monkeypatch.setattr(store, "ping", lambda: None)
-    c = TestClient(main.app)
-    c.db = db
-    return c
+from app import config, llm, main
 
 
 def upload(client, data: bytes, name="doc.pdf"):

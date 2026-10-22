@@ -29,6 +29,21 @@ export async function uploadPdf(file) {
   return res.json();
 }
 
+// POST /api/study -> { filename, kind, units, unit_label, cards: [{ front, back, source }] }
+export async function generateFlashcards(file, count) {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("count", String(count));
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/api/study`, { method: "POST", body });
+  } catch {
+    throw unreachable();
+  }
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return res.json();
+}
+
 // GET /api/health also reports the PDF that is already indexed (it answers 503 when Ollama is
 // down, but the body is still useful), so a page reload can pick the existing index back up.
 export async function getIndexedDocument() {
