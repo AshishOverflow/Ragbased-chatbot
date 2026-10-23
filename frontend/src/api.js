@@ -36,8 +36,11 @@ export async function generateFlashcards(file, count) {
   body.append("count", String(count));
   let res;
   try {
-    res = await fetch(`${API_BASE}/api/study`, { method: "POST", body });
-  } catch {
+    res = await fetch(`${API_BASE}/api/study`, { method: "POST", body, signal: AbortSignal.timeout(180_000) });
+  } catch (e) {
+    if (e.name === "TimeoutError" || e.name === "AbortError") {
+      throw new Error("Flashcard generation took too long. Try again with fewer cards.");
+    }
     throw unreachable();
   }
   if (!res.ok) throw new Error(await errorMessage(res));

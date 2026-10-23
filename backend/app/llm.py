@@ -1,4 +1,5 @@
 import json
+import re
 from typing import AsyncIterator
 
 import httpx
@@ -41,15 +42,23 @@ def build_messages(question: str, hits: list[Hit]) -> list[dict[str, str]]:
 
 
 async def _stream_ollama(
-    messages: list[dict[str, str]], transport: httpx.AsyncBaseTransport | None = None
+    messages: list[dict[str, str]],
+    transport: httpx.AsyncBaseTransport | None = None,
+    max_tokens: int | None = None,
+    json_schema: dict | None = None,
 ) -> AsyncIterator[Chunk]:
-    payload = {
+    options: dict[str, object] = {"num_ctx": config.LLM_NUM_CTX, "temperature": 0.2}
+    if max_tokens is not None:
+        options["num_predict"] = max_tokens
+    payload: dict[str, object] = {
         "model": config.LLM_MODEL,
         "messages": messages,
         "stream": True,
         "think": False,
-        "options": {"num_ctx": config.LLM_NUM_CTX, "temperature": 0.2},
+        "options": options,
     }
+    if json_schema is not None:
+        payload["format"] = json_schema
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT, transport=transport) as client:
             async with client.stream("POST", f"{config.LLM_BASE_URL}/api/chat", json=payload) as r:
@@ -81,16 +90,26 @@ async def _stream_ollama(
 
 
 async def _stream_openai(
-    messages: list[dict[str, str]], transport: httpx.AsyncBaseTransport | None = None
+    messages: list[dict[str, str]],
+    transport: httpx.AsyncBaseTransport | None = None,
+    max_tokens: int | None = None,
+    json_schema: dict | None = None,
 ) -> AsyncIterator[Chunk]:
     """Stream from OpenAI-compatible servers (LM Studio, vLLM, LocalAI)."""
     endpoint = f"{config.LLM_BASE_URL}/v1/chat/completions"
-    payload = {
+    payload: dict[str, object] = {
         "model": config.LLM_MODEL,
         "messages": messages,
         "stream": True,
         "temperature": 0.2,
     }
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
+    if json_schema is not None:
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "flashcards", "schema": json_schema},
+        }
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT, transport=transport) as client:
             async with client.stream("POST", endpoint, json=payload) as r:
@@ -136,25 +155,74 @@ async def _stream_openai(
 
 
 async def stream_answer(
-    messages: list[dict[str, str]], transport: httpx.AsyncBaseTransport | None = None
+    messages: list[dict[str, str]],
+    transport: httpx.AsyncBaseTransport | None = None,
+    max_tokens: int | None = None,
+    json_schema: dict | None = None,
 ) -> AsyncIterator[Chunk]:
     if config.LLM_PROVIDER in ("lmstudio", "openai"):
-        async for text in _stream_openai(messages, transport=transport):
+        async for text in _stream_openai(
+            messages, transport=transport, max_tokens=max_tokens, json_schema=json_schema
+        ):
             yield text
     else:
-        async for text in _stream_ollama(messages, transport=transport):
+        async for text in _stream_ollama(
+            messages, transport=transport, max_tokens=max_tokens, json_schema=json_schema
+        ):
             yield text
+
+
+def _closed_json_array(text: str) -> bool:
+    """True once `text` contains a finished top-level JSON array, ignoring unclosed thinking."""
+    if re.search(r"<think>(?:(?!</think>).)*\Z", text, flags=re.DOTALL):
+        return False
+    visible = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    start = visible.find("[")
+    if start < 0:
+        return False
+    depth = 0
+    in_string = False
+    escaped = False
+    for ch in visible[start:]:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return True
+    return False
 
 
 async def complete(
-    messages: list[dict[str, str]], transport: httpx.AsyncBaseTransport | None = None
+    messages: list[dict[str, str]],
+    transport: httpx.AsyncBaseTransport | None = None,
+    max_tokens: int | None = None,
+    json_schema: dict | None = None,
 ) -> str:
-    """Collect a full answer, dropping reasoning tokens."""
+    """Collect a full answer, dropping reasoning tokens.
+
+    When a JSON schema is set, stop as soon as a complete array has arrived so a model
+    that keeps talking cannot hold the request open.
+    """
     parts: list[str] = []
-    async for chunk in stream_answer(messages, transport=transport):
+    async for chunk in stream_answer(
+        messages, transport=transport, max_tokens=max_tokens, json_schema=json_schema
+    ):
         if not chunk.is_thinking:
             parts.append(str(chunk))
-    text = "".join(parts).strip()
+        if json_schema is not None and _closed_json_array("".join(parts)):
+            break
+    text = re.sub(r"<think>.*?</think>", "", "".join(parts), flags=re.DOTALL).strip()
     if not text:
         raise LLMError("The model returned an empty response.")
     return text
