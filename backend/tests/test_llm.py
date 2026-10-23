@@ -70,6 +70,38 @@ def test_invalid_json_raises():
         run(b"not json\n")
 
 
+def test_complete_stops_when_the_card_array_closes():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        seen["num_predict"] = payload["options"]["num_predict"]
+        seen["format"] = payload["format"]["type"]
+        body = lines(
+            msg('<think>planning</think>[{"front": "Q", "back": "A", "source": "Page 1"}]'),
+            msg(" this essay should not be waited for"),
+            {"done": True, "done_reason": "stop", "message": {"content": ""}},
+        )
+        return httpx.Response(200, content=body)
+
+    async def go() -> str:
+        return await llm.complete(
+            [],
+            transport=httpx.MockTransport(handler),
+            max_tokens=400,
+            json_schema={"type": "array"},
+        )
+
+    text = asyncio.run(go())
+    assert text == '[{"front": "Q", "back": "A", "source": "Page 1"}]'
+    assert seen == {"num_predict": 400, "format": "array"}
+
+
+def test_closed_json_array_waits_out_an_open_think_block():
+    assert not llm._closed_json_array('<think> [1, 2]')
+    assert llm._closed_json_array('<think>nope</think>[{"a": "]"}]')
+
+
 def test_build_messages_includes_pages():
     m = llm.build_messages("Why?", [Hit(3, "alpha"), Hit(7, "beta")])
     assert "[Page 3]\nalpha" in m[1]["content"] and "[Page 7]\nbeta" in m[1]["content"]

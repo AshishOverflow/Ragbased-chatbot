@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { generateFlashcards } from "./api.js";
 
-const COUNTS = [8, 12, 16];
+const COUNTS = [3, 5, 8, 12, 15];
 
 function isStudyFile(file) {
   return /\.(pdf|pptx)$/i.test(file?.name || "");
@@ -10,7 +10,7 @@ function isStudyFile(file) {
 export default function StudyMode() {
   const fileRef = useRef(null);
   const [file, setFile] = useState(null);
-  const [count, setCount] = useState(12);
+  const [count, setCount] = useState(8);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
   const [deck, setDeck] = useState(null);
