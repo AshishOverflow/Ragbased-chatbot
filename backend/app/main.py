@@ -18,7 +18,18 @@ from pydantic import BaseModel, StringConstraints
 from . import config, embeddings, llm, store
 from .pdf import PDFError, chunk_pages, extract_pages
 from .slides import SlideError
-from .study import DocumentError, build_messages, detect_kind, fit_source, load_units, parse_cards
+from .study import (
+    CARD_COUNTS,
+    CARD_SCHEMA,
+    STUDY_QUERIES,
+    DocumentError,
+    build_messages,
+    detect_kind,
+    fit_source,
+    load_units,
+    parse_cards,
+    retrieve_units,
+)
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app")
@@ -112,14 +123,29 @@ class ChatRequest(BaseModel):
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 
 
+def _study_source(units: list[tuple[int, str]], label: str, count: int) -> str:
+    """Chunk the file, embed it, and retrieve passages for the flashcard prompt.
+
+    This is a one-shot index. It does not replace the chat document in ChromaDB.
+    """
+    chunks = chunk_pages(units, embeddings.token_spans, config.CHUNK_TOKENS, config.CHUNK_OVERLAP)
+    if not chunks:
+        return ""
+    vectors = embeddings.embed_passages([c.text for c in chunks])
+    query_vectors = [embeddings.embed_query(q) for q in STUDY_QUERIES]
+    k = min(len(chunks), max(count, config.TOP_K))
+    selected = retrieve_units([(c.page, c.text) for c in chunks], vectors, query_vectors, k)
+    return fit_source(selected, label)
+
+
 @app.post("/api/study")
 async def study(
     file: Annotated[UploadFile, File()],
-    count: Annotated[int, Form()] = 12,
+    count: Annotated[int, Form()] = 8,
 ) -> dict:
-    """Build flashcards from one PDF or .pptx. Does not replace the chat index."""
-    if not 4 <= count <= 24:
-        raise HTTPException(422, "Ask for between 4 and 24 flashcards.")
+    """Build flashcards from retrieved passages of one PDF or .pptx. Does not replace the chat index."""
+    if count not in CARD_COUNTS:
+        raise HTTPException(422, "Ask for 3, 5, 8, 12, or 15 flashcards.")
     if not upload_lock.acquire(blocking=False):
         raise HTTPException(409, "Another upload is being processed. Try again shortly.")
     tmp = None
@@ -137,9 +163,21 @@ async def study(
                 422,
                 "No extractable text found. Scanned pages and image-only slides are not supported.",
             )
-        messages = build_messages(fit_source(units, label), count)
+        source = await run_in_threadpool(_study_source, units, label, count)
+        if not source:
+            raise HTTPException(
+                422,
+                "No extractable text found. Scanned pages and image-only slides are not supported.",
+            )
+        messages = build_messages(source, count)
+        log.info("Generating up to %d flashcards from %d excerpt characters", count, len(source))
         try:
-            raw = await llm.complete(messages)
+            # Enough for the requested cards, and short enough that a rambling model cannot run on.
+            raw = await llm.complete(
+                messages,
+                max_tokens=min(2048, 180 + count * 140),
+                json_schema=CARD_SCHEMA,
+            )
             cards = parse_cards(raw, count)
         except llm.LLMError as e:
             log.error("Study generation failed: %s", e)

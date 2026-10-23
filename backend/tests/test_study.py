@@ -3,9 +3,9 @@ import json
 import pytest
 from pptx import Presentation
 
-from app import llm
+from app import embeddings, llm
 from app.slides import SlideError, extract_slides
-from app.study import DocumentError, detect_kind, fit_source, parse_cards
+from app.study import CARD_COUNTS, DocumentError, detect_kind, fit_source, parse_cards, retrieve_units
 
 
 def _pptx(path, slides: list[tuple[str, str, str]]) -> bytes:
@@ -65,6 +65,27 @@ def test_fit_source_keeps_every_label_under_the_limit():
         assert f"[Slide {i}]" in text
 
 
+def test_retrieve_units_prefers_query_matches_and_keeps_document_order():
+    units = [(i, f"chunk {i}") for i in range(1, 7)]
+    vectors = [
+        [1.0, 0.0],
+        [0.0, 1.0],
+        [0.2, 0.2],
+        [0.1, 0.0],
+        [0.9, 0.1],
+        [0.0, 0.2],
+    ]
+    picked = retrieve_units(units, vectors, [[1.0, 0.0], [0.0, 1.0]], k=4)
+    numbers = [n for n, _ in picked]
+    assert 5 in numbers and 2 in numbers
+    assert numbers == sorted(numbers)
+    assert len(picked) == 4
+
+
+def test_card_counts():
+    assert CARD_COUNTS == (3, 5, 8, 12, 15)
+
+
 def test_parse_cards_accepts_fenced_json_and_drops_blanks():
     raw = """```json
     [
@@ -93,13 +114,29 @@ def test_parse_cards_rejects_prose():
 
 
 def test_study_pdf_returns_cards(client, pdf_bytes, monkeypatch):
-    async def fake(messages, transport=None):
+    calls = {"passages": 0, "queries": 0}
+
+    def passages(texts):
+        calls["passages"] += 1
+        assert texts and "mitochondria" in texts[0]
+        return [[1.0, 0.0] for _ in texts]
+
+    def query(text):
+        calls["queries"] += 1
+        assert text
+        return [1.0, 0.0]
+
+    async def fake(messages, transport=None, max_tokens=None, json_schema=None):
+        assert max_tokens and json_schema
+        assert "retrieved excerpts" in messages[1]["content"]
         assert "[Page 1]" in messages[1]["content"]
         assert "mitochondria" in messages[1]["content"]
         return json.dumps(
             [{"front": "Where is ATP made?", "back": "In mitochondria.", "source": "Page 1"}]
         )
 
+    monkeypatch.setattr(embeddings, "embed_passages", passages)
+    monkeypatch.setattr(embeddings, "embed_query", query)
     monkeypatch.setattr(llm, "complete", fake)
     data = pdf_bytes(["The mitochondria make ATP."])
     r = client.post(
@@ -112,11 +149,12 @@ def test_study_pdf_returns_cards(client, pdf_bytes, monkeypatch):
     assert body["kind"] == "pdf"
     assert body["units"] == 1
     assert body["cards"][0]["back"] == "In mitochondria."
+    assert calls == {"passages": 1, "queries": 3}
     assert client.db["doc"] is None
 
 
 def test_study_pptx_returns_cards(client, tmp_path, monkeypatch):
-    async def fake(messages, transport=None):
+    async def fake(messages, transport=None, max_tokens=None, json_schema=None):
         assert "[Slide 1]" in messages[1]["content"]
         return json.dumps([{"front": "Topic", "back": "Cells divide.", "source": "Slide 1"}])
 
@@ -138,6 +176,17 @@ def test_study_pptx_returns_cards(client, tmp_path, monkeypatch):
     assert r.json()["cards"][0]["source"] == "Slide 1"
 
 
+def test_study_rejects_counts_outside_the_picker(client, pdf_bytes):
+    data = pdf_bytes(["Cells have membranes."])
+    for count in ("2", "4", "16", "24"):
+        r = client.post(
+            "/api/study",
+            files={"file": ("bio.pdf", data, "application/pdf")},
+            data={"count": count},
+        )
+        assert r.status_code == 422
+
+
 def test_study_rejects_legacy_ppt_and_empty_pdf(client, pdf_bytes):
     old = client.post("/api/study", files={"file": ("old.ppt", b"\xd0\xcf\x11\xe0rest", "application/vnd.ms-powerpoint")})
     assert old.status_code == 400
@@ -146,7 +195,7 @@ def test_study_rejects_legacy_ppt_and_empty_pdf(client, pdf_bytes):
 
 
 def test_study_reports_bad_model_output(client, pdf_bytes, monkeypatch):
-    async def fake(messages, transport=None):
+    async def fake(messages, transport=None, max_tokens=None, json_schema=None):
         return "sorry, no json"
 
     monkeypatch.setattr(llm, "complete", fake)
