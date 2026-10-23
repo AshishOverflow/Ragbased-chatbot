@@ -21,7 +21,7 @@ function AnswerText({ text }) {
 }
 
 // Collapsible thinking block for models with reasoning (Qwen 3.5, DeepSeek R1, etc.)
-function ThinkingBlock({ thinking, isStreaming, onPause }) {
+function ThinkingBlock({ thinking, isStreaming, onStop }) {
   const [open, setOpen] = useState(false);
 
   if (!thinking) return null;
@@ -41,17 +41,21 @@ function ThinkingBlock({ thinking, isStreaming, onPause }) {
           </span>
           <span className={`thinking-chevron ${open ? "open" : ""}`}>▾</span>
         </button>
-        {isStreaming && onPause && (
+        {isStreaming && onStop && (
           <button
             type="button"
-            className="btn-inline-pause"
+            className="btn-inline-stop"
             onClick={(e) => {
               e.stopPropagation();
-              onPause();
+              onStop();
             }}
-            title="Pause thinking to change your question"
+            title="Stop generation to change your question"
+            aria-label="Stop generation"
           >
-            <span className="pause-icon-symbol">⏸</span> Pause
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="5" y="5" width="14" height="14" rx="2.5" />
+            </svg>
+            <span>Stop</span>
           </button>
         )}
       </div>
@@ -60,7 +64,7 @@ function ThinkingBlock({ thinking, isStreaming, onPause }) {
   );
 }
 
-function Message({ msg, onPause, onEditPrompt, isLatestAssistant, isBusy, lastQuestion }) {
+function Message({ msg, onStop, onEditPrompt, isLatestAssistant, isBusy, lastQuestion }) {
   if (msg.role === "user") {
     return (
       <div className="row user">
@@ -92,7 +96,7 @@ function Message({ msg, onPause, onEditPrompt, isLatestAssistant, isBusy, lastQu
           <ThinkingBlock
             thinking={msg.thinking}
             isStreaming={msg.status === "streaming" && !msg.content}
-            onPause={isBusy && isLatestAssistant ? onPause : null}
+            onStop={isBusy && isLatestAssistant ? onStop : null}
           />
         )}
         {isInitialWait && (
@@ -102,11 +106,15 @@ function Message({ msg, onPause, onEditPrompt, isLatestAssistant, isBusy, lastQu
             {isBusy && isLatestAssistant && (
               <button
                 type="button"
-                className="btn-inline-pause"
-                onClick={onPause}
-                title="Pause thinking to change your question"
+                className="btn-inline-stop"
+                onClick={onStop}
+                title="Stop generation to change your question"
+                aria-label="Stop generation"
               >
-                <span className="pause-icon-symbol">⏸</span> Pause
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="5" y="5" width="14" height="14" rx="2.5" />
+                </svg>
+                <span>Stop</span>
               </button>
             )}
           </div>
@@ -119,8 +127,13 @@ function Message({ msg, onPause, onEditPrompt, isLatestAssistant, isBusy, lastQu
         {msg.status === "paused" && (
           <div className="paused-banner" role="status">
             <div className="paused-info">
-              <span className="paused-badge">⏸ Paused</span>
-              <span>Thinking stopped. Want to change what you asked?</span>
+              <span className="paused-badge">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="5" y="5" width="14" height="14" rx="2.5" />
+                </svg>
+                Stopped
+              </span>
+              <span>Generation stopped. Want to change what you asked?</span>
             </div>
             {(msg.prompt || lastQuestion) && (
               <button
@@ -237,7 +250,7 @@ export default function App() {
     if (file) handleFile(file);
   }
 
-  function handlePause() {
+  function handleStop() {
     if (abortRef.current) {
       abortRef.current.abort();
     }
@@ -262,6 +275,8 @@ export default function App() {
       inputRef.current?.focus();
     }, 50);
   }
+
+  const handlePause = handleStop;
 
   function handleEditPrompt(promptText) {
     if (!promptText) return;
@@ -437,7 +452,7 @@ export default function App() {
                 <Message
                   key={m.id}
                   msg={m}
-                  onPause={handlePause}
+                  onStop={handleStop}
                   onEditPrompt={handleEditPrompt}
                   isBusy={busy}
                   isLatestAssistant={m.id === latestAssistantId}
@@ -527,7 +542,7 @@ export default function App() {
                 placeholder={
                   canChat
                     ? busy
-                      ? "Model is thinking... Click Pause if you want to change what you asked"
+                      ? "Model is thinking... Click ■ to stop and change your question"
                       : "Ask a question about your PDF..."
                     : "Attach a PDF to start chatting..."
                 }
@@ -536,20 +551,18 @@ export default function App() {
                 aria-label="Your question"
               />
 
-              {/* Action Button: Pause while model is thinking/streaming, Send when idle */}
+              {/* Action Button: Stop (square icon like other AI agents) while busy, Send when idle */}
               {busy ? (
                 <button
                   type="button"
-                  className="btn-pause"
-                  onClick={handlePause}
-                  title="Pause thinking to change your question"
-                  aria-label="Pause thinking to change your question"
+                  className="btn-stop"
+                  onClick={handleStop}
+                  title="Stop generating"
+                  aria-label="Stop generating"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                    <rect x="5" y="4" width="4.5" height="16" rx="1.5" />
-                    <rect x="14.5" y="4" width="4.5" height="16" rx="1.5" />
+                    <rect x="5" y="5" width="14" height="14" rx="2.5" />
                   </svg>
-                  <span>Pause</span>
                 </button>
               ) : (
                 <button

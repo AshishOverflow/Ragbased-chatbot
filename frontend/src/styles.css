@@ -504,16 +504,16 @@ body {
   overflow-y: auto;
 }
 
-/* Inline Pause Button inside Thinking Header or Waiting State */
-.btn-inline-pause {
+/* Inline Stop Button inside Thinking Header or Waiting State */
+.btn-inline-stop {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   padding: 4px 10px;
-  border-radius: var(--radius-full);
-  background-color: var(--pause-soft);
-  color: var(--pause-text);
-  border: 1px solid var(--pause-border);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-strong);
   font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
@@ -521,15 +521,16 @@ body {
   white-space: nowrap;
 }
 
-.btn-inline-pause:hover {
-  background-color: var(--pause-bg);
+.btn-inline-stop:hover {
+  background-color: var(--accent-primary);
   color: #FFFFFF;
-  border-color: var(--pause-bg);
+  border-color: var(--accent-primary);
 }
 
-.pause-icon-symbol {
-  font-size: 0.75rem;
-  line-height: 1;
+@media (prefers-color-scheme: dark) {
+  .btn-inline-stop:hover {
+    color: #0F172A;
+  }
 }
 
 /* Loading initial wait state */
@@ -575,11 +576,11 @@ body {
   gap: 10px;
   margin-top: 10px;
   padding: 10px 14px;
-  background-color: var(--pause-soft);
-  border: 1px solid var(--pause-border);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   font-size: 0.85rem;
-  color: var(--pause-text);
+  color: var(--text-secondary);
 }
 
 .paused-info {
@@ -591,11 +592,11 @@ body {
 .paused-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   padding: 2px 8px;
   border-radius: var(--radius-sm);
-  background-color: var(--pause-bg);
-  color: #FFFFFF;
+  background-color: var(--text-main);
+  color: var(--bg-card);
   font-size: 0.75rem;
   font-weight: 700;
 }
@@ -934,28 +935,36 @@ textarea:disabled {
   cursor: not-allowed;
 }
 
-/* Pause Button while model is thinking/streaming */
-.btn-pause {
-  display: inline-flex;
+/* Stop / Halt Button while model is thinking/streaming (square icon like ChatGPT / Claude) */
+.btn-stop {
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  width: 38px;
   height: 38px;
-  padding: 0 16px;
   border-radius: var(--radius-md);
-  background-color: var(--pause-bg);
+  background-color: var(--accent-primary);
   color: #FFFFFF;
   border: none;
-  font-size: 0.85rem;
-  font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.15s ease;
+  transition: all 0.15s ease;
   flex-shrink: 0;
   margin-bottom: 2px;
 }
 
-.btn-pause:hover {
-  background-color: var(--pause-hover);
+@media (prefers-color-scheme: dark) {
+  .btn-stop {
+    color: #0F172A;
+  }
+}
+
+.btn-stop:hover {
+  opacity: 0.85;
+  transform: scale(1.03);
+}
+
+.btn-stop:active {
+  transform: scale(0.97);
 }
 
 /* Mini spinner */
