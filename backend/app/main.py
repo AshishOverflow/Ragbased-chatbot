@@ -172,10 +172,11 @@ async def study(
         messages = build_messages(source, count)
         log.info("Generating up to %d flashcards from %d excerpt characters", count, len(source))
         try:
-            # Enough for the requested cards, and short enough that a rambling model cannot run on.
+            # Token budget: 200 tokens per card (Gemma/local models are verbose) + 200 for the
+            # array wrapper. Cap at 4096 so a rambling model cannot stall the request indefinitely.
             raw = await llm.complete(
                 messages,
-                max_tokens=min(2048, 180 + count * 140),
+                max_tokens=min(4096, 200 + count * 200),
                 json_schema=CARD_SCHEMA,
             )
             cards = parse_cards(raw, count)

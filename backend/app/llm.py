@@ -95,7 +95,14 @@ async def _stream_openai(
     max_tokens: int | None = None,
     json_schema: dict | None = None,
 ) -> AsyncIterator[Chunk]:
-    """Stream from OpenAI-compatible servers (LM Studio, vLLM, LocalAI)."""
+    """Stream from OpenAI-compatible servers (LM Studio, vLLM, LocalAI).
+
+    json_schema is accepted for interface compatibility but is NOT forwarded as
+    response_format because most local models (Gemma, Llama, Mistral, etc.) do
+    not support the OpenAI structured-output spec and respond with truncated or
+    malformed JSON when it is sent.  The system prompt already instructs the
+    model to return a plain JSON array, which is reliable across all backends.
+    """
     endpoint = f"{config.LLM_BASE_URL}/v1/chat/completions"
     payload: dict[str, object] = {
         "model": config.LLM_MODEL,
@@ -105,11 +112,9 @@ async def _stream_openai(
     }
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
-    if json_schema is not None:
-        payload["response_format"] = {
-            "type": "json_schema",
-            "json_schema": {"name": "flashcards", "schema": json_schema},
-        }
+    # Note: response_format / json_schema is intentionally NOT sent to LM Studio.
+    # Local models like Gemma 4B do not support the structured-output spec and
+    # respond poorly (early truncation, wrong finish_reason) when it is included.
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT, transport=transport) as client:
             async with client.stream("POST", endpoint, json=payload) as r:
@@ -117,6 +122,7 @@ async def _stream_openai(
                     body = (await r.aread()).decode(errors="replace")[:300]
                     raise LLMError(f"LM Studio returned HTTP {r.status_code}: {body}")
                 produced = False
+                accumulated: list[str] = []  # for JSON-completion detection
                 async for line in r.aiter_lines():
                     line = line.strip()
                     if not line:
@@ -141,9 +147,15 @@ async def _stream_openai(
                             text = delta.get("content") or ""
                             if text:
                                 produced = True
+                                accumulated.append(text)
                                 yield Chunk(text, is_thinking=False)
                             finish_reason = choice.get("finish_reason")
                             if finish_reason == "length":
+                                # LM Studio sometimes reports "length" even when the JSON array is
+                                # fully closed (e.g. Gemma 4B hits the token budget on the last ])
+                                # Only raise if the output is genuinely incomplete.
+                                if _closed_json_array("".join(accumulated)):
+                                    return  # JSON is complete – not a real truncation
                                 raise LLMError("The answer was cut off (context limit reached).")
                 if not produced:
                     raise LLMError("The connection to LM Studio closed before the answer was complete.")

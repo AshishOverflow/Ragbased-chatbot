@@ -1,7 +1,7 @@
+# syntax=docker/dockerfile:1
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
     HF_HOME=/cache/huggingface \
     DATA_DIR=/data
 
@@ -9,8 +9,9 @@ RUN useradd --create-home app && mkdir -p /data /cache && chown app:app /data /c
 
 WORKDIR /srv
 COPY requirements.txt .
-# CPU-only torch wheels; falls back to PyPI for everything else.
-RUN pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+# CPU-only torch wheels; pip download cache is preserved between builds via BuildKit cache mount.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
 
 COPY app ./app
 USER app
