@@ -172,10 +172,11 @@ async def study(
         messages = build_messages(source, count)
         log.info("Generating up to %d flashcards from %d excerpt characters", count, len(source))
         try:
-            # Enough for the requested cards, and short enough that a rambling model cannot run on.
+            # Token budget: 200 tokens per card (Gemma/local models are verbose) + 200 for the
+            # array wrapper. Cap at 4096 so a rambling model cannot stall the request indefinitely.
             raw = await llm.complete(
                 messages,
-                max_tokens=min(2048, 180 + count * 140),
+                max_tokens=min(4096, 200 + count * 200),
                 json_schema=CARD_SCHEMA,
             )
             cards = parse_cards(raw, count)
@@ -220,6 +221,10 @@ async def chat(req: ChatRequest) -> StreamingResponse:
     async def events():
         yield _sse("sources", sorted({h.page for h in hits}))
         try:
+            # No max_tokens cap here: Gemma 4B e4b is a thinking model and spends its first
+            # 200-400 tokens on internal reasoning before writing the answer. A hard cap
+            # would cut it off before any visible content is produced.
+            # Response length is controlled by the "1-3 sentences" rule in SYSTEM_PROMPT.
             async for chunk in llm.stream_answer(messages):
                 event_type = "thinking" if getattr(chunk, "is_thinking", False) else "token"
                 yield _sse(event_type, {"text": str(chunk)})
