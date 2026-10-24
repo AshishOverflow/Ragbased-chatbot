@@ -1,8 +1,18 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import path from "path";
+import { fileURLToPath } from "url";
 
-// The host binding (0.0.0.0 inside Docker) is passed on the command line, not set here.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [tailwindcss(), react()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
   server: { port: 5173, strictPort: true },
 });
+

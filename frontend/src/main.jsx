@@ -4,10 +4,7 @@ import App from "./App.jsx";
 import "./styles.css";
 
 class ErrorBoundary extends Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
+  state = { hasError: false, error: null };
 
   static getDerivedStateFromError(error) {
     return { hasError: true, error };
@@ -20,42 +17,26 @@ class ErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            height: "100vh",
-            padding: "20px",
-            color: "var(--text-main, #0F172A)",
-            backgroundColor: "var(--bg-app, #F8FAFC)",
-            fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-            textAlign: "center",
-          }}
-        >
-          <h2 style={{ marginBottom: "8px" }}>Something went wrong</h2>
-          <p style={{ color: "var(--text-muted, #64748B)", maxWidth: "500px", marginBottom: "20px" }}>
-            {this.state.error?.message || "An unexpected error occurred."}
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              this.setState({ hasError: false, error: null });
-              window.location.reload();
-            }}
-            style={{
-              padding: "10px 20px",
-              backgroundColor: "var(--accent-primary, #0F172A)",
-              color: "#FFFFFF",
-              border: "none",
-              borderRadius: "8px",
-              cursor: "pointer",
-              fontWeight: 600,
-            }}
-          >
-            Reload Application
-          </button>
+        <div className="midnight-canvas flex flex-col items-center justify-center min-h-screen p-6 text-center">
+          <div className="max-w-md w-full p-8 rounded-3xl border border-slate-800 bg-slate-900/80 backdrop-blur-xl shadow-2xl text-slate-100 flex flex-col items-center">
+            <div className="size-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 mb-4">
+              ⚠️
+            </div>
+            <h2 className="text-xl font-bold tracking-tight mb-2">Something went wrong</h2>
+            <p className="text-sm text-slate-400 mb-6 leading-relaxed">
+              {this.state.error?.message || "An unexpected application error occurred."}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                this.setState({ hasError: false, error: null });
+                window.location.reload();
+              }}
+              className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm shadow-lg shadow-indigo-600/30 transition-all duration-200"
+            >
+              Reload Application
+            </button>
+          </div>
         </div>
       );
     }

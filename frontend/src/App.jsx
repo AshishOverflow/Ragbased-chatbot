@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getIndexedDocument, streamChat, uploadPdf } from "./api.js";
 import StudyMode from "./StudyMode.jsx";
+import { Button } from "./components/ui/button.jsx";
+import { Card } from "./components/ui/card.jsx";
+import { Badge } from "./components/ui/badge.jsx";
+import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs.jsx";
+import { Textarea } from "./components/ui/textarea.jsx";
+import { cn } from "./lib/utils.js";
 
 const MAX_QUESTION = 2000;
 let nextId = 0;
 const uid = () => `m${++nextId}`;
+
+const SUGGESTED_PROMPTS = [
+  { label: "Summarize document", text: "Can you give a brief summary of this document?" },
+  { label: "Key points & conclusions", text: "What are the key points and main conclusions?" },
+  { label: "Primary findings", text: "What are the primary recommendations or findings?" },
+];
 
 // Highlights inline citations such as [Page 3] or [Pages 3-4]
 function AnswerText({ text }) {
@@ -23,46 +35,36 @@ function AnswerText({ text }) {
   );
 }
 
-// Collapsible thinking block for models with reasoning (Qwen 3.5, DeepSeek R1, etc.)
-function ThinkingBlock({ thinking, isStreaming, onStop }) {
+// Collapsible thinking block for models with reasoning (Qwen 3.5, DeepSeek R1, Gemma thinking, etc.)
+function ThinkingBlock({ thinking, isStreaming }) {
   const [open, setOpen] = useState(false);
 
   if (!thinking) return null;
 
   return (
-    <div className="thinking-block">
-      <div className="thinking-header">
+    <div className="mb-3.5 rounded-xl border border-amber-500/25 bg-amber-500/5 backdrop-blur-md overflow-hidden transition-all duration-200">
+      <div className="flex items-center justify-between px-3.5 py-2.5 bg-amber-500/10 border-b border-amber-500/15">
         <button
           type="button"
-          className="thinking-toggle"
+          className="flex items-center gap-2 text-xs font-semibold tracking-wide text-amber-300 hover:text-amber-200 transition-colors"
           onClick={() => setOpen(!open)}
           aria-expanded={open}
         >
-          <span className="thinking-icon">💭</span>
-          <span className="thinking-title">
-            {isStreaming ? "Thinking through response…" : "Thought process"}
-          </span>
-          <span className={`thinking-chevron ${open ? "open" : ""}`}>▾</span>
+          <BrainCircuit className={cn("size-3.5 text-amber-400", isStreaming && "animate-pulse")} />
+          <span>{isStreaming ? "Thinking through response…" : "Thought process"}</span>
+          <ChevronDown
+            className={cn(
+              "size-3.5 text-amber-400/80 transition-transform duration-200",
+              open && "rotate-180"
+            )}
+          />
         </button>
-        {isStreaming && onStop && (
-          <button
-            type="button"
-            className="btn-inline-stop"
-            onClick={(e) => {
-              e.stopPropagation();
-              onStop();
-            }}
-            title="Stop generation to change your question"
-            aria-label="Stop generation"
-          >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="5" y="5" width="14" height="14" rx="2.5" />
-            </svg>
-            <span>Stop</span>
-          </button>
-        )}
       </div>
-      {open && <pre className="thinking-content">{thinking}</pre>}
+      {open && (
+        <pre className="p-3.5 text-xs text-amber-200/80 font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-72 border-t border-amber-500/10 bg-black/20">
+          {thinking}
+        </pre>
+      )}
     </div>
   );
 }
@@ -70,21 +72,19 @@ function ThinkingBlock({ thinking, isStreaming, onStop }) {
 function Message({ msg, onStop, onEditPrompt, isLatestAssistant, isBusy, lastQuestion }) {
   if (msg.role === "user") {
     return (
-      <div className="row user">
-        <div className="user-message-wrapper">
-          <button
-            type="button"
-            className="btn-edit-user-msg"
-            onClick={() => onEditPrompt?.(msg.content)}
-            title="Edit and ask again"
-            aria-label="Edit and ask again"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-            </svg>
-          </button>
-          <div className="bubble user-bubble">{msg.content}</div>
+      <div className="group flex justify-end items-end gap-2 my-4 pl-8 sm:pl-16">
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="size-7 rounded-lg text-slate-500 opacity-0 group-hover:opacity-100 hover:text-slate-300 hover:bg-slate-800 transition-all duration-150 shrink-0"
+          onClick={() => onEditPrompt?.(msg.content)}
+          title="Edit and ask again"
+        >
+          <Pencil className="size-3.5" />
+        </Button>
+        <div className="rounded-2xl rounded-br-sm border border-indigo-500/30 bg-gradient-to-br from-indigo-950/70 to-slate-900/90 px-4 py-3 text-slate-100 text-sm shadow-lg shadow-black/30 backdrop-blur-md max-w-2xl leading-relaxed">
+          {msg.content}
         </div>
       </div>
     );
@@ -93,79 +93,83 @@ function Message({ msg, onStop, onEditPrompt, isLatestAssistant, isBusy, lastQue
   const isInitialWait = msg.status === "streaming" && !msg.content && !msg.thinking;
 
   return (
-    <div className="row assistant">
-      <div className="assistant-card">
+    <div className="flex gap-3 my-4 pr-4 sm:pr-12">
+      <div className="size-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-500 border border-indigo-400/30 flex items-center justify-center shrink-0 shadow-md shadow-indigo-600/20 text-white">
+        <Bot className="size-4" />
+      </div>
+
+      <Card className="flex-1 rounded-2xl border-slate-800/80 bg-slate-900/70 backdrop-blur-xl p-4 sm:p-5 shadow-xl shadow-black/40 text-slate-200 overflow-hidden">
         {msg.thinking && (
           <ThinkingBlock
             thinking={msg.thinking}
             isStreaming={msg.status === "streaming" && !msg.content}
-            onStop={isBusy && isLatestAssistant ? onStop : null}
           />
         )}
+
         {isInitialWait && (
-          <div className="loading-state">
-            <span className="pulse-dot"></span>
-            <span className="pulse-text">Reviewing document and formulating response…</span>
-            {isBusy && isLatestAssistant && (
-              <button
-                type="button"
-                className="btn-inline-stop"
-                onClick={onStop}
-                title="Stop generation to change your question"
-                aria-label="Stop generation"
-              >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="5" y="5" width="14" height="14" rx="2.5" />
-                </svg>
-                <span>Stop</span>
-              </button>
-            )}
+          <div className="flex items-center gap-2.5 py-1 text-sm text-slate-400">
+            <Sparkles className="size-4 text-indigo-400 animate-spin" />
+            <span className="text-xs sm:text-sm text-slate-300">
+              Reviewing document and formulating response…
+            </span>
           </div>
         )}
-        {msg.content && (
-          <div className="answer-text">
-            <AnswerText text={msg.content} />
-          </div>
-        )}
+
+        {msg.content && <AnswerText text={msg.content} />}
+
         {msg.status === "paused" && (
-          <div className="paused-banner" role="status">
-            <div className="paused-info">
-              <span className="paused-badge">
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="5" y="5" width="14" height="14" rx="2.5" />
-                </svg>
+          <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-200">
+            <div className="flex items-center gap-2">
+              <Badge variant="destructive" className="bg-amber-500/20 text-amber-300 border-amber-500/40 gap-1 px-2 py-0.5">
+                <Square className="size-2.5 fill-current" />
                 Stopped
-              </span>
-              <span>Generation stopped. Want to change what you asked?</span>
+              </Badge>
+              <span>Generation stopped. Want to revise what you asked?</span>
             </div>
             {(msg.prompt || lastQuestion) && (
-              <button
+              <Button
                 type="button"
-                className="pill-action-btn edit-prompt-btn"
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs border-amber-500/40 text-amber-200 hover:bg-amber-500/20"
                 onClick={() => onEditPrompt?.(msg.prompt || lastQuestion)}
               >
-                Edit question
-              </button>
+                <Pencil className="size-3 mr-1" /> Edit question
+              </Button>
             )}
           </div>
         )}
+
         {msg.status === "error" && (
-          <div className="error-banner" role="alert">
-            <span className="error-icon">⚠️</span>
-            <span>{msg.content ? "Answer interrupted: " : ""}{msg.error}</span>
+          <div className="mt-3.5 flex items-start gap-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3.5 text-xs text-rose-300">
+            <AlertCircle className="size-4 text-rose-400 shrink-0 mt-0.5" />
+            <div className="leading-relaxed">
+              <span className="font-semibold text-rose-200">
+                {msg.content ? "Answer interrupted: " : "Generation failed: "}
+              </span>
+              <span>{msg.error}</span>
+            </div>
           </div>
         )}
+
         {msg.status === "done" && msg.sources && msg.sources.length > 0 && (
-          <div className="sources-container">
-            <span className="sources-label">Sources:</span>
+          <div className="mt-4 pt-3.5 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-slate-400">
+              <Layers className="size-3.5 text-indigo-400" />
+              Sources:
+            </span>
             {msg.sources.map((page) => (
-              <span className="source-tag" key={page}>
+              <Badge
+                key={page}
+                variant="indigo"
+                className="text-[11px] font-semibold tracking-wide px-2.5 py-0.5 rounded-md"
+              >
                 Page {page}
-              </span>
+              </Badge>
             ))}
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }
@@ -254,9 +258,7 @@ export default function App() {
   }
 
   function handleStop() {
-    if (abortRef.current) {
-      abortRef.current.abort();
-    }
+    abortRef.current?.abort();
     if (activeBotIdRef.current) {
       setMessages((m) =>
         m.map((x) =>
@@ -269,24 +271,15 @@ export default function App() {
     busyRef.current = false;
     setBusy(false);
 
-    // In case the person wants to change what he needs to ask:
-    // Restore the prompt into the input field and focus
     if (lastQuestionRef.current) {
-      setInput(lastQuestionRef.current);
+      handleEditPrompt(lastQuestionRef.current);
     }
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 50);
   }
-
-  const handlePause = handleStop;
 
   function handleEditPrompt(promptText) {
     if (!promptText) return;
     setInput(promptText);
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 50);
+    setTimeout(() => inputRef.current?.focus(), 50);
   }
 
   async function send() {
@@ -351,106 +344,103 @@ export default function App() {
   const latestAssistantId = [...messages].reverse().find((m) => m.role === "assistant")?.id;
 
   return (
-    <div className="layout">
-      {/* Header spanning full width */}
-      <header className="brand-header">
-        <div className="brand-content">
-          <div className="brand-logo-badge">
-            <span className="logo-symbol">✦</span>
+    <div className="midnight-canvas flex flex-col h-screen overflow-hidden selection:bg-indigo-500/30 selection:text-white">
+      {/* Sleek Minimalist Midnight Header */}
+      <header className="h-16 border-b border-slate-800/80 bg-slate-950/70 backdrop-blur-xl px-4 sm:px-6 flex items-center justify-between shrink-0 z-20">
+        <div className="flex items-center gap-3">
+          <div className="size-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-500 border border-indigo-400/30 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
+            <Sparkles className="size-4" />
           </div>
-          <div className="brand-titles">
-            <h1 className="brand-name">PDF Chat</h1>
-            <p className="brand-caption">
-              {mode === "study" ? "Flashcards from a PDF or PowerPoint" : "Chat with your PDF"}
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm sm:text-base font-semibold tracking-tight text-slate-100">
+                PDF Chat
+              </h1>
+              <Badge variant="outline" className="text-[10px] py-0 px-1.5 border-indigo-500/30 text-indigo-300 bg-indigo-500/10">
+                RAG
+              </Badge>
+            </div>
+            <p className="text-xs text-slate-400 font-normal hidden sm:block">
+              {mode === "study" ? "Flashcards & memory study mode" : "Grounded conversational intelligence"}
             </p>
           </div>
         </div>
 
-        <div className="header-actions">
-          <div className="mode-switch" role="group" aria-label="Mode">
-            <button type="button" aria-pressed={mode === "chat"} onClick={() => setMode("chat")}>
-              Chat
-            </button>
-            <button type="button" aria-pressed={mode === "study"} onClick={() => setMode("study")}>
-              Study
-            </button>
-          </div>
-          {mode === "chat" && indexed && (
-            <div className="header-status-pill" title={`Active: ${indexed.filename}`}>
-              <span className="status-dot online"></span>
-              <span className="status-filename">{indexed.filename}</span>
-              <span className="status-pages">{indexed.pages}p</span>
-            </div>
-          )}
+        <div className="flex items-center gap-3 sm:gap-4">
+          <Tabs value={mode} onValueChange={setMode}>
+            <TabsList className="h-9 p-1 bg-slate-900/90 border-slate-800/80">
+              <TabsTrigger value="chat" className="gap-1.5 text-xs py-1">
+                <MessageSquare className="size-3.5" />
+                <span>Chat</span>
+              </TabsTrigger>
+              <TabsTrigger value="study" className="gap-1.5 text-xs py-1">
+                <BookOpen className="size-3.5" />
+                <span>Study</span>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
       </header>
 
+      {/* Main View Area */}
       {mode === "study" ? (
-        <main className="chat-container">
+        <main className="flex-1 overflow-y-auto">
           <StudyMode />
         </main>
       ) : (
-        <main className="chat-container" ref={scrollRef} onScroll={onScroll}>
+        <main
+          className="flex-1 overflow-y-auto px-4 sm:px-6 md:px-8 py-6 max-w-4xl w-full mx-auto"
+          ref={scrollRef}
+          onScroll={onScroll}
+        >
           {messages.length === 0 ? (
-            <div className="empty-hero">
-              <div className="hero-icon-wrapper">
-                <span className="hero-icon">📄</span>
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center max-w-lg mx-auto py-12">
+              <div className="size-16 rounded-3xl bg-slate-900/80 border border-slate-800 shadow-2xl shadow-indigo-500/10 flex items-center justify-center mb-6 text-indigo-400 backdrop-blur-md">
+                <FileText className="size-8" />
               </div>
-              <h2 className="hero-title">Welcome to PDF Chat</h2>
-              <p className="hero-subtitle">
+              <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-100 mb-2">
+                Welcome to PDF Chat
+              </h2>
+              <p className="text-sm text-slate-400 leading-relaxed mb-8">
                 {indexed
-                  ? `Ready to discuss ${indexed.filename}. Ask questions, request summaries, or extract key insights.`
-                  : "Attach a PDF below to start extracting answers and citations instantly."}
+                  ? `Ready to discuss "${indexed.filename}". Ask questions, request executive summaries, or inspect key citations.`
+                  : "Upload a PDF below to extract answers, explore excerpts, and chat directly with your document."}
               </p>
 
               {indexed ? (
-                <div className="suggested-prompts">
-                  <button
-                    type="button"
-                    className="prompt-chip"
-                    onClick={() => {
-                      setInput("Can you give a brief summary of this document?");
-                      inputRef.current?.focus();
-                    }}
-                  >
-                    "Summarize this document"
-                  </button>
-                  <button
-                    type="button"
-                    className="prompt-chip"
-                    onClick={() => {
-                      setInput("What are the key points and conclusions?");
-                      inputRef.current?.focus();
-                    }}
-                  >
-                    "What are the main conclusions?"
-                  </button>
-                  <button
-                    type="button"
-                    className="prompt-chip"
-                    onClick={() => {
-                      setInput("What are the primary recommendations or findings?");
-                      inputRef.current?.focus();
-                    }}
-                  >
-                    "Key findings & details"
-                  </button>
+                <div className="w-full flex flex-col sm:flex-row flex-wrap items-center justify-center gap-2.5">
+                  {SUGGESTED_PROMPTS.map(({ label, text }) => (
+                    <Button
+                      key={label}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-xl border-slate-800 bg-slate-900/60 hover:bg-slate-800/80 hover:border-indigo-500/40 hover:text-indigo-200 text-xs py-2 px-3.5 transition-all duration-200"
+                      onClick={() => handleEditPrompt(text)}
+                    >
+                      <Sparkles className="size-3 text-indigo-400 mr-1" />
+                      "{label}"
+                    </Button>
+                  ))}
                 </div>
               ) : (
-                <div className="hero-cta">
-                  <button
+                <div>
+                  <Button
                     type="button"
-                    className="btn-hero-attach"
+                    variant="midnight"
+                    size="lg"
+                    className="gap-2 text-sm shadow-xl"
                     onClick={() => fileRef.current?.click()}
                     disabled={uploading}
                   >
-                    <span className="btn-icon">📎</span> Choose a PDF
-                  </button>
+                    <Paperclip className="size-4" />
+                    <span>Choose a PDF document</span>
+                  </Button>
                 </div>
               )}
             </div>
           ) : (
-            <div className="messages-thread">
+            <div className="space-y-4 pb-4">
               {messages.map((m) => (
                 <Message
                   key={m.id}
@@ -467,52 +457,65 @@ export default function App() {
         </main>
       )}
 
+      {/* Floating Bottom Composer (Chat Mode Only) */}
       {mode === "chat" && (
-        <footer className="composer-container">
-          <div className="composer-card">
-            {/* Document Attachment Banner */}
+        <footer className="p-4 sm:p-6 pt-0 max-w-4xl w-full mx-auto z-20">
+          <Card className="border-slate-800/90 bg-slate-950/85 backdrop-blur-2xl shadow-2xl shadow-black/80 p-3 sm:p-4 rounded-2xl relative">
+            {/* Document attachment status banner */}
             {(indexed || uploading || upload.status === "error") && (
-              <div className="attached-banner">
+              <div className="mb-2.5 pb-2.5 border-b border-slate-800/60 flex items-center justify-between text-xs">
                 {uploading ? (
-                  <div className="upload-pill in-progress">
-                    <span className="spinner-mini"></span>
-                    <span>Indexing {upload.name}…</span>
+                  <div className="flex items-center gap-2 text-indigo-300">
+                    <Loader2 className="size-3.5 animate-spin text-indigo-400" />
+                    <span>Indexing "{upload.name}"…</span>
                   </div>
                 ) : upload.status === "error" ? (
-                  <div className="upload-pill error">
-                    <span>⚠️ {upload.error}</span>
-                    <button
+                  <div className="flex items-center justify-between w-full text-rose-300 gap-2">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <AlertCircle className="size-3.5 text-rose-400 shrink-0" />
+                      <span className="truncate">{upload.error}</span>
+                    </div>
+                    <Button
                       type="button"
-                      className="pill-action-btn"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs text-rose-300 hover:text-white hover:bg-rose-500/20 px-2"
                       onClick={() => fileRef.current?.click()}
                     >
-                      Retry
-                    </button>
+                      <RotateCcw className="size-3 mr-1" /> Retry
+                    </Button>
                   </div>
                 ) : (
-                  <div className="upload-pill active">
-                    <span className="pdf-badge">PDF</span>
-                    <span className="doc-name" title={indexed.filename}>
-                      {indexed.filename}
-                    </span>
-                    <span className="doc-meta">({indexed.pages} pages)</span>
-                    <button
+                  <div className="flex items-center justify-between w-full text-slate-300">
+                    <div className="flex items-center gap-2 truncate">
+                      <Badge variant="indigo" className="text-[10px] px-1.5 py-0 font-bold">
+                        PDF
+                      </Badge>
+                      <span className="font-medium truncate max-w-[240px] sm:max-w-md text-slate-200" title={indexed.filename}>
+                        {indexed.filename}
+                      </span>
+                      <span className="text-slate-500 hidden sm:inline">
+                        ({indexed.pages} {indexed.pages === 1 ? "page" : "pages"})
+                      </span>
+                    </div>
+                    <Button
                       type="button"
-                      className="pill-action-btn"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 px-2"
                       onClick={() => fileRef.current?.click()}
                       disabled={uploading || busy}
                       title="Choose a different PDF to replace current index"
                     >
                       Replace
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Input & Action Bar */}
-            <div className="composer-row">
-              {/* Hidden native file input */}
+            {/* Input Row */}
+            <div className="flex items-end gap-2">
               <input
                 ref={fileRef}
                 type="file"
@@ -521,22 +524,23 @@ export default function App() {
                 onChange={onFileChange}
               />
 
-              {/* Attachment Button */}
-              <button
+              <Button
                 type="button"
-                className={`btn-attach ${indexed ? "has-doc" : ""}`}
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "size-9 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 shrink-0",
+                  indexed && "text-indigo-400 hover:text-indigo-300"
+                )}
                 disabled={uploading || busy}
                 onClick={() => fileRef.current?.click()}
                 title={indexed ? "Replace PDF" : "Attach PDF"}
                 aria-label={indexed ? "Replace PDF" : "Attach PDF"}
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                </svg>
-              </button>
+                <Paperclip className="size-4" />
+              </Button>
 
-              {/* Textarea */}
-              <textarea
+              <Textarea
                 ref={inputRef}
                 rows={1}
                 value={input}
@@ -545,45 +549,43 @@ export default function App() {
                 placeholder={
                   canChat
                     ? busy
-                      ? "Model is thinking... Click ■ to stop and change your question"
+                      ? "Generating response... Click ■ to stop"
                       : "Ask a question about your PDF..."
-                    : "Attach a PDF to start chatting..."
+                    : "Attach a PDF above to start chatting..."
                 }
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
-                aria-label="Your question"
+                className="py-2.5 px-3 min-h-[40px] border-slate-800/80 bg-slate-900/70 text-slate-100 text-sm focus-visible:ring-indigo-500/40"
               />
 
-              {/* Action Button: Stop (square icon like other AI agents) while busy, Send when idle */}
               {busy ? (
-                <button
+                <Button
                   type="button"
-                  className="btn-stop"
+                  variant="destructive"
+                  size="icon"
+                  className="size-9 rounded-xl shrink-0"
                   onClick={handleStop}
                   title="Stop generating"
                   aria-label="Stop generating"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                    <rect x="5" y="5" width="14" height="14" rx="2.5" />
-                  </svg>
-                </button>
+                  <Square className="size-3.5 fill-current" />
+                </Button>
               ) : (
-                <button
+                <Button
                   type="button"
-                  className="btn-send"
+                  variant="midnight"
+                  size="icon"
+                  className="size-9 rounded-xl shrink-0"
                   disabled={!canChat || !input.trim()}
                   onClick={send}
                   title="Send message"
                   aria-label="Send message"
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="12" y1="19" x2="12" y2="5" />
-                    <polyline points="5 12 12 5 19 12" />
-                  </svg>
-                </button>
+                  <Send className="size-4" />
+                </Button>
               )}
             </div>
-          </div>
+          </Card>
         </footer>
       )}
     </div>

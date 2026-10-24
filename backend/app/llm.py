@@ -160,7 +160,6 @@ async def _stream_openai(
                                 return
                 if not produced:
                     raise LLMError("The connection to LM Studio closed before the answer was complete.")
-                return
     except httpx.HTTPError as e:
         raise LLMError(f"Connection to LM Studio ({config.LLM_BASE_URL}) failed: {e!r}") from e
     except json.JSONDecodeError as e:
@@ -173,16 +172,9 @@ async def stream_answer(
     max_tokens: int | None = None,
     json_schema: dict | None = None,
 ) -> AsyncIterator[Chunk]:
-    if config.LLM_PROVIDER in ("lmstudio", "openai"):
-        async for text in _stream_openai(
-            messages, transport=transport, max_tokens=max_tokens, json_schema=json_schema
-        ):
-            yield text
-    else:
-        async for text in _stream_ollama(
-            messages, transport=transport, max_tokens=max_tokens, json_schema=json_schema
-        ):
-            yield text
+    streamer = _stream_openai if config.LLM_PROVIDER in ("lmstudio", "openai") else _stream_ollama
+    async for chunk in streamer(messages, transport=transport, max_tokens=max_tokens, json_schema=json_schema):
+        yield chunk
 
 
 def _closed_json_array(text: str) -> bool:
