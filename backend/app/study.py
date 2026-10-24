@@ -67,11 +67,9 @@ def detect_kind(name: str, head: bytes) -> str:
 def load_units(path: Path, kind: str) -> tuple[str, int, list[tuple[int, str]]]:
     """Return (label, unit count, non-empty units). Label is 'Page' or 'Slide'."""
     if kind == "pdf":
-        count, units = extract_pages(path)
-        return "Page", count, units
+        return ("Page", *extract_pages(path))
     if kind == "pptx":
-        count, units = extract_slides(path)
-        return "Slide", count, units
+        return ("Slide", *extract_slides(path))
     raise DocumentError("Upload a PDF or a PowerPoint file (.pptx).")
 
 
@@ -174,22 +172,15 @@ def parse_cards(raw: str, limit: int) -> list[dict[str, str]]:
     text = raw.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
-    start = text.find("[")
-    end = text.rfind("]")
-    if start == -1 or end <= start:
-        obj_start = text.find("{")
-        obj_end = text.rfind("}")
+    start, end = text.find("["), text.rfind("]")
+    if start != -1 and end > start:
+        data = json.loads(text[start : end + 1])
+    else:
+        obj_start, obj_end = text.find("{"), text.rfind("}")
         if obj_start == -1 or obj_end <= obj_start:
             raise ValueError("no JSON")
-        payload = json.loads(text[obj_start : obj_end + 1])
-        if isinstance(payload, dict):
-            for key in ("cards", "flashcards", "items"):
-                if isinstance(payload.get(key), list):
-                    payload = payload[key]
-                    break
-        data = payload
-    else:
-        data = json.loads(text[start : end + 1])
+        data = json.loads(text[obj_start : obj_end + 1])
+
     if isinstance(data, dict):
         for key in ("cards", "flashcards", "items"):
             if isinstance(data.get(key), list):
