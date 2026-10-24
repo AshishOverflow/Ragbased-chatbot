@@ -1,21 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import {
-  Sparkles,
-  Bot,
-  Paperclip,
-  Send,
-  Square,
-  FileText,
-  AlertCircle,
-  Pencil,
-  ChevronDown,
-  Layers,
-  RotateCcw,
-  BookOpen,
-  MessageSquare,
-  BrainCircuit,
-  Loader2,
-} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getIndexedDocument, streamChat, uploadPdf } from "./api.js";
 import StudyMode from "./StudyMode.jsx";
 import { Button } from "./components/ui/button.jsx";
@@ -37,19 +20,18 @@ const SUGGESTED_PROMPTS = [
 
 // Highlights inline citations such as [Page 3] or [Pages 3-4]
 function AnswerText({ text }) {
-  const parts = text.split(/(\[Pages?\s[^\]\n]*\d[^\]\n]*\])/g);
-  return (
-    <div className="leading-relaxed text-slate-200 text-[15px] space-y-3 whitespace-pre-wrap selection:bg-indigo-500/30 selection:text-white">
-      {parts.map((part, i) =>
-        i % 2 ? (
-          <span key={i} className="citation-badge">
-            {part}
-          </span>
-        ) : (
-          part
-        )
-      )}
-    </div>
+  const parts = useMemo(
+    () => text.split(/(\[Pages?\s[^\]\n]*\d[^\]\n]*\])/g),
+    [text]
+  );
+  return parts.map((part, i) =>
+    i % 2 ? (
+      <span className="cite-badge" key={i}>
+        {part}
+      </span>
+    ) : (
+      part
+    )
   );
 }
 
