@@ -221,6 +221,10 @@ async def chat(req: ChatRequest) -> StreamingResponse:
     async def events():
         yield _sse("sources", sorted({h.page for h in hits}))
         try:
+            # No max_tokens cap here: Gemma 4B e4b is a thinking model and spends its first
+            # 200-400 tokens on internal reasoning before writing the answer. A hard cap
+            # would cut it off before any visible content is produced.
+            # Response length is controlled by the "1-3 sentences" rule in SYSTEM_PROMPT.
             async for chunk in llm.stream_answer(messages):
                 event_type = "thinking" if getattr(chunk, "is_thinking", False) else "token"
                 yield _sse(event_type, {"text": str(chunk)})

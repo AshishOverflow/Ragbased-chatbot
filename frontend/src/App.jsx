@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getIndexedDocument, streamChat, uploadPdf } from "./api.js";
 import StudyMode from "./StudyMode.jsx";
 
@@ -8,7 +8,10 @@ const uid = () => `m${++nextId}`;
 
 // Highlights inline citations such as [Page 3] or [Pages 3-4]
 function AnswerText({ text }) {
-  const parts = text.split(/(\[Pages?\s[^\]\n]*\d[^\]\n]*\])/g);
+  const parts = useMemo(
+    () => text.split(/(\[Pages?\s[^\]\n]*\d[^\]\n]*\])/g),
+    [text]
+  );
   return parts.map((part, i) =>
     i % 2 ? (
       <span className="cite-badge" key={i}>
