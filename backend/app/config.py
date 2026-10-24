@@ -9,23 +9,21 @@ OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "").lower()
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "").rstrip("/")
 LLM_MODEL = os.environ.get("LLM_MODEL", "")
-LLM_NUM_CTX = int(os.environ.get("LLM_NUM_CTX", str(OLLAMA_NUM_CTX)))
+LLM_NUM_CTX = int(os.environ.get("LLM_NUM_CTX", OLLAMA_NUM_CTX))
 
-# Auto-detect LM Studio if port 1234 or /v1 is in the URL, or if LLM_PROVIDER is set
+# Auto-detect LM Studio if port 1234 or /v1 is in either base URL
+target_url = LLM_BASE_URL or OLLAMA_BASE_URL
 if not LLM_PROVIDER:
-    if "1234" in OLLAMA_BASE_URL or "1234" in LLM_BASE_URL or "/v1" in (LLM_BASE_URL or OLLAMA_BASE_URL):
-        LLM_PROVIDER = "lmstudio"
-    else:
-        LLM_PROVIDER = "ollama"
+    LLM_PROVIDER = "lmstudio" if ("1234" in target_url or "/v1" in target_url) else "ollama"
 
 if not LLM_BASE_URL:
-    if LLM_PROVIDER in ("lmstudio", "openai"):
-        LLM_BASE_URL = "http://host.docker.internal:1234" if "11434" in OLLAMA_BASE_URL else OLLAMA_BASE_URL
-    else:
-        LLM_BASE_URL = OLLAMA_BASE_URL
+    LLM_BASE_URL = (
+        ("http://host.docker.internal:1234" if "11434" in OLLAMA_BASE_URL else OLLAMA_BASE_URL)
+        if LLM_PROVIDER in ("lmstudio", "openai")
+        else OLLAMA_BASE_URL
+    )
 
-if not LLM_MODEL:
-    LLM_MODEL = OLLAMA_MODEL
+LLM_MODEL = LLM_MODEL or OLLAMA_MODEL
 
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "chroma")
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8000"))

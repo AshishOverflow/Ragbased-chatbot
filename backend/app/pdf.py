@@ -34,11 +34,11 @@ def extract_pages(path: Path) -> tuple[int, list[tuple[int, str]]]:
             raise PDFError("The file is not a valid PDF.")
         if doc.needs_pass:
             raise PDFError("Password-protected PDFs are not supported.")
-        pages = []
-        for number, page in enumerate(doc, start=1):
-            text = _clean(page.get_text("text"))
-            if text:
-                pages.append((number, text))
+        pages = [
+            (number, text)
+            for number, page in enumerate(doc, start=1)
+            if (text := _clean(page.get_text("text")))
+        ]
         return doc.page_count, pages
     except PDFError:
         raise

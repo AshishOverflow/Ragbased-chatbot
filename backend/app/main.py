@@ -6,7 +6,7 @@ import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Callable, TypeVar
+from typing import Annotated
 
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -33,7 +33,7 @@ from .study import (
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app")
-T = TypeVar("T")
+
 
 
 @asynccontextmanager
@@ -53,7 +53,7 @@ app.add_middleware(
 upload_lock = threading.Lock()
 
 
-def _store(fn: Callable[..., T], *args) -> T:
+def _store(fn, *args):
     try:
         return fn(*args)
     except Exception:
@@ -77,11 +77,6 @@ def _write_upload(file: UploadFile, dest: Path) -> bytes:
     return head
 
 
-def _save_upload(file: UploadFile, dest: Path) -> None:
-    head = _write_upload(file, dest)
-    if b"%PDF-" not in head:
-        raise HTTPException(400, "The file is not a valid PDF.")
-
 
 @app.post("/api/upload")
 def upload(file: Annotated[UploadFile, File()]) -> dict:
@@ -90,7 +85,9 @@ def upload(file: Annotated[UploadFile, File()]) -> dict:
     config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     tmp = config.UPLOAD_DIR / f".incoming-{uuid.uuid4().hex}"
     try:
-        _save_upload(file, tmp)
+        head = _write_upload(file, tmp)
+        if b"%PDF-" not in head:
+            raise HTTPException(400, "The file is not a valid PDF.")
         try:
             page_count, pages = extract_pages(tmp)
         except PDFError as e:
@@ -158,12 +155,7 @@ async def study(
             label, unit_count, units = await run_in_threadpool(load_units, tmp, kind)
         except (DocumentError, PDFError, SlideError) as e:
             raise HTTPException(400, str(e))
-        if not units:
-            raise HTTPException(
-                422,
-                "No extractable text found. Scanned pages and image-only slides are not supported.",
-            )
-        source = await run_in_threadpool(_study_source, units, label, count)
+        source = await run_in_threadpool(_study_source, units, label, count) if units else ""
         if not source:
             raise HTTPException(
                 422,
@@ -226,7 +218,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             # would cut it off before any visible content is produced.
             # Response length is controlled by the "1-3 sentences" rule in SYSTEM_PROMPT.
             async for chunk in llm.stream_answer(messages):
-                event_type = "thinking" if getattr(chunk, "is_thinking", False) else "token"
+                event_type = "thinking" if chunk.is_thinking else "token"
                 yield _sse(event_type, {"text": str(chunk)})
         except llm.LLMError as e:
             log.error("LLM failure: %s", e)
@@ -267,13 +259,12 @@ async def _check_openai() -> dict:
             r.raise_for_status()
         models = [m.get("id") for m in r.json().get("data", [])]
         available = bool(models)
-        exact_match = config.LLM_MODEL in models if config.LLM_MODEL else False
         out = {
             "ok": available,
             "provider": config.LLM_PROVIDER,
             "model": config.LLM_MODEL,
             "models_available": models,
-            "model_available": exact_match or available,
+            "model_available": (config.LLM_MODEL in models) if config.LLM_MODEL else available,
         }
         if not available:
             out["error"] = "No models loaded in LM Studio. Please start the server and load a model."
@@ -304,7 +295,6 @@ async def health() -> JSONResponse:
         "status": "ok" if ok else "degraded",
         "chroma": chroma,
         "llm": llm_status,
-        "ollama": llm_status,  # backwards compatibility with tests and callers
         "embedding_model_loaded": embeddings.is_loaded(),
     }
     return JSONResponse(body, status_code=200 if ok else 503)
