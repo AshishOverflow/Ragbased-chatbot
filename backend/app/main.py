@@ -21,7 +21,6 @@ from .slides import SlideError
 from .study import (
     CARD_COUNTS,
     CARD_SCHEMA,
-    STUDY_QUERIES,
     DocumentError,
     build_messages,
     detect_kind,
@@ -29,6 +28,7 @@ from .study import (
     load_units,
     parse_cards,
     retrieve_units,
+    sample_study_queries,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -129,7 +129,8 @@ def _study_source(units: list[tuple[int, str]], label: str, count: int) -> str:
     if not chunks:
         return ""
     vectors = embeddings.embed_passages([c.text for c in chunks])
-    query_vectors = [embeddings.embed_query(q) for q in STUDY_QUERIES]
+    queries = sample_study_queries(3)
+    query_vectors = [embeddings.embed_query(q) for q in queries]
     k = min(len(chunks), max(count, config.TOP_K))
     selected = retrieve_units([(c.page, c.text) for c in chunks], vectors, query_vectors, k)
     return fit_source(selected, label)
@@ -166,10 +167,12 @@ async def study(
         try:
             # Token budget: 200 tokens per card (Gemma/local models are verbose) + 200 for the
             # array wrapper. Cap at 4096 so a rambling model cannot stall the request indefinitely.
+            # Temperature is 0.75 so 'Regenerate' explores distinct concepts & question angles.
             raw = await llm.complete(
                 messages,
                 max_tokens=min(4096, 200 + count * 200),
                 json_schema=CARD_SCHEMA,
+                temperature=0.75,
             )
             cards = parse_cards(raw, count)
         except llm.LLMError as e:

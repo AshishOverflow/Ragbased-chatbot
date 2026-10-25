@@ -126,7 +126,7 @@ def test_study_pdf_returns_cards(client, pdf_bytes, monkeypatch):
         assert text
         return [1.0, 0.0]
 
-    async def fake(messages, transport=None, max_tokens=None, json_schema=None):
+    async def fake(messages, transport=None, max_tokens=None, json_schema=None, **kwargs):
         assert max_tokens and json_schema
         assert "retrieved excerpts" in messages[1]["content"]
         assert "[Page 1]" in messages[1]["content"]

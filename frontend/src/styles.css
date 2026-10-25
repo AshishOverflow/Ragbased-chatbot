@@ -72,7 +72,8 @@
 }
 
 /* Inline Citation Badges */
-.citation-badge {
+.citation-badge,
+.cite-badge {
   display: inline-flex;
   align-items: center;
   font-size: 0.75rem;
@@ -80,16 +81,148 @@
   padding: 0.15rem 0.5rem;
   margin: 0 0.2rem;
   border-radius: 9999px;
-  background-color: rgba(99, 102, 241, 0.15);
+  background-color: rgba(99, 102, 241, 0.18);
   color: #a5b4fc;
-  border: 1px solid rgba(99, 102, 241, 0.35);
+  border: 1px solid rgba(99, 102, 241, 0.4);
   box-shadow: 0 0 10px rgba(99, 102, 241, 0.15);
   letter-spacing: 0.02em;
   transition: all 0.15s ease;
   vertical-align: baseline;
 }
-.citation-badge:hover {
-  background-color: rgba(99, 102, 241, 0.25);
-  border-color: rgba(99, 102, 241, 0.5);
+.citation-badge:hover,
+.cite-badge:hover {
+  background-color: rgba(99, 102, 241, 0.3);
+  border-color: rgba(99, 102, 241, 0.6);
   color: #c7d2fe;
+}
+
+/* Markdown prose styling */
+.prose-midnight {
+  color: #e2e8f0;
+  line-height: 1.7;
+}
+
+.prose-midnight p {
+  margin-bottom: 0.85rem;
+}
+
+.prose-midnight p:last-child {
+  margin-bottom: 0;
+}
+
+.prose-midnight strong,
+.prose-midnight b {
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.prose-midnight em,
+.prose-midnight i {
+  color: #cbd5e1;
+  font-style: italic;
+}
+
+.prose-midnight ul {
+  list-style-type: disc;
+  padding-left: 1.4rem;
+  margin-top: 0.6rem;
+  margin-bottom: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.prose-midnight ol {
+  list-style-type: decimal;
+  padding-left: 1.4rem;
+  margin-top: 0.6rem;
+  margin-bottom: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.prose-midnight li {
+  padding-left: 0.2rem;
+}
+
+.prose-midnight li > p {
+  margin-bottom: 0.25rem;
+  display: inline;
+}
+
+.prose-midnight h1,
+.prose-midnight h2,
+.prose-midnight h3,
+.prose-midnight h4 {
+  color: #f1f5f9;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose-midnight h1 { font-size: 1.35rem; }
+.prose-midnight h2 { font-size: 1.2rem; }
+.prose-midnight h3 { font-size: 1.05rem; }
+.prose-midnight h4 { font-size: 0.95rem; }
+
+.prose-midnight code:not(pre code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.825em;
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.375rem;
+  background-color: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+  color: #818cf8;
+}
+
+.prose-midnight pre {
+  margin: 0.75rem 0;
+  padding: 0.85rem 1rem;
+  border-radius: 0.75rem;
+  background-color: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+  overflow-x: auto;
+}
+
+.prose-midnight pre code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.825rem;
+  line-height: 1.6;
+  color: #e2e8f0;
+}
+
+.prose-midnight blockquote {
+  border-left: 3px solid #6366f1;
+  padding-left: 0.85rem;
+  margin: 0.75rem 0;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.prose-midnight hr {
+  border: 0;
+  border-top: 1px solid rgba(51, 65, 85, 0.6);
+  margin: 1.25rem 0;
+}
+
+.prose-midnight table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.85rem;
+}
+
+.prose-midnight th,
+.prose-midnight td {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  text-align: left;
+}
+
+.prose-midnight th {
+  background-color: rgba(30, 41, 59, 0.7);
+  color: #f1f5f9;
+  font-weight: 600;
 }

@@ -1,5 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertCircle,
+  BookOpen,
+  Bot,
+  BrainCircuit,
+  ChevronDown,
+  FileText,
+  Layers,
+  Loader2,
+  MessageSquare,
+  Paperclip,
+  Pencil,
+  RotateCcw,
+  Send,
+  Sparkles,
+  Square,
+} from "lucide-react";
 import { getIndexedDocument, streamChat, uploadPdf } from "./api.js";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import StudyMode from "./StudyMode.jsx";
 import { Button } from "./components/ui/button.jsx";
 import { Card } from "./components/ui/card.jsx";
@@ -18,20 +37,38 @@ const SUGGESTED_PROMPTS = [
   { label: "Primary findings", text: "What are the primary recommendations or findings?" },
 ];
 
-// Highlights inline citations such as [Page 3] or [Pages 3-4]
+// Renders rich Markdown with lists, headings, bold text, code, and inline citation badges
 function AnswerText({ text }) {
-  const parts = useMemo(
-    () => text.split(/(\[Pages?\s[^\]\n]*\d[^\]\n]*\])/g),
-    [text]
-  );
-  return parts.map((part, i) =>
-    i % 2 ? (
-      <span className="cite-badge" key={i}>
-        {part}
-      </span>
-    ) : (
-      part
-    )
+  const html = useMemo(() => {
+    if (!text) return "";
+    // Normalize bullet points or numbered lists that appear inline without leading newlines
+    let normalized = text
+      .replace(/([^\n])\s+([*•-]\s+)/g, "$1\n\n$2")
+      .replace(/([^\n])\s+(\d+\.\s+)/g, "$1\n\n$2");
+
+    // Convert bulleted headers (e.g. "* **Heading:**") into clean standalone subheadings without bullets
+    normalized = normalized.replace(
+      /^[*•-]\s+(\*\*[^*:\n]+:?\*\*|\*\*[^*:\n]+\*\*:\s*)$/gm,
+      (_, heading) => `\n#### ${heading.replace(/[*:]/g, "").trim()}\n`
+    );
+
+    const parsed = marked.parse(normalized, { breaks: true, gfm: true });
+    // Transform inline citation labels like [Page 3] or [Slide 2] into styled badges
+    const withBadges = parsed.replace(
+      /(\[(?:Pages?|Chunks?|Slides?)\s[^\]\n]*\d[^\]\n]*\])/gi,
+      '<span class="citation-badge">$1</span>'
+    );
+    return DOMPurify.sanitize(withBadges, {
+      ADD_TAGS: ["span"],
+      ADD_ATTR: ["class"],
+    });
+  }, [text]);
+
+  return (
+    <div
+      className="prose-midnight text-slate-200 text-sm leading-relaxed"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
   );
 }
 
