@@ -1,6 +1,7 @@
 """Turn a PDF or PowerPoint into study flashcards grounded in retrieved passages."""
 
 import json
+import random
 import re
 from pathlib import Path
 
@@ -25,27 +26,46 @@ CARD_SCHEMA = {
 }
 
 # Queries embedded the same way as a chat question, then matched against chunk vectors.
-STUDY_QUERIES = (
-    "definitions and key terms a student should memorize",
-    "important facts, steps, causes, and effects",
-    "examples, formulas, comparisons, and conclusions",
+STUDY_QUERY_POOL = (
+    "definitions, terminology, and key concepts to memorize",
+    "important mechanisms, processes, steps, causes, and effects",
+    "comparisons, contrasts, differences, and relationships",
+    "practical examples, scenarios, formulas, and applications",
+    "critical principles, takeaways, and foundational conclusions",
 )
+STUDY_QUERIES = STUDY_QUERY_POOL[:3]
+
+
+def sample_study_queries(k: int = 3) -> list[str]:
+    """Pick a varied set of query angles to probe different passages across regenerations."""
+    return random.sample(STUDY_QUERY_POOL, min(k, len(STUDY_QUERY_POOL)))
+
 
 CARD_COUNTS = (3, 5, 8, 12, 15)
 
-SYSTEM_PROMPT = """You create study flashcards from one document. Use only the retrieved excerpts in the user message. Each excerpt is labeled with its page or slide.
+PEDAGOGICAL_ANGLES = (
+    "Vary question types across recall, comprehension, and application. Emphasize definitions, core terminology, and key distinctions.",
+    "Vary question types across recall, comprehension, and application. Emphasize 'why' and 'how' questions, causal mechanisms, and processes.",
+    "Vary question types across recall, comprehension, and application. Emphasize comparisons, contrasts, and relationships between concepts.",
+    "Vary question types across recall, comprehension, and application. Emphasize short scenario prompts, practical examples, and concrete applications.",
+    "Vary question types across recall, comprehension, and application. Emphasize core principles, critical consequences, and key takeaways.",
+)
 
-Return a JSON array and nothing else. Each item is an object with:
-- "front": a short question or term a student should recall
-- "back": a concise answer stated in the source
-- "source": the block label the answer comes from, copied exactly, such as "Page 3" or "Slide 2"
+SYSTEM_PROMPT = """You are a flashcard generation engine for a study app. You create high-quality study flashcards from retrieved document excerpts. Each excerpt is labeled with its page or slide (for example, "[Page 3]" or "[Slide 2]").
 
-Rules:
-- Cover distinct ideas spread across the whole document, not only the opening.
-- Do not invent facts, examples, or numbers that the source does not state.
-- Skip bare titles, slide numbers, and boilerplate that are not worth studying.
-- Write in the same language as the source.
-- No markdown fences, no thinking trace, and no commentary. Start the reply with [."""
+Goal:
+Produce flashcards that reliably test deep understanding of the material in the excerpts. Cover the key concepts, definitions, relationships, causes and effects, processes, and examples that appear in the excerpts.
+
+Guidelines & Standards:
+1. Strict Grounding: Ground every card strictly in the text of the excerpts. Do not add facts from outside knowledge, and do not guess at details the excerpts do not state.
+2. Self-Contained: Keep each card self-contained so it makes sense on its own, without needing the surrounding text.
+3. Varied Question Types: Vary question types to test recall, comprehension, and application: definitions, "why" and "how" questions, comparisons, and short scenario prompts where the material supports them. Avoid trivial yes/no questions and near-duplicate cards.
+4. Concise & Readable: Keep each front and back short enough to read at a glance, typically one to three sentences.
+   - "front": a clear question, term, or cue
+   - "back": a concise, accurate answer that a student can check against the source
+   - "source": the excerpt label the card was drawn from, copied exactly (e.g., "Page 3" or "Slide 2")
+5. Noise Filtering: Skip boilerplate such as headers, page numbers, references, and filler text. If excerpts contain little substantive content, produce fewer cards rather than inventing material.
+6. JSON Output: Return a JSON array of objects and nothing else. No markdown fences, no thinking trace, and no commentary. Start your reply directly with [."""
 
 
 class DocumentError(ValueError):
@@ -148,15 +168,17 @@ def retrieve_units(
     return [units[i] for i in sorted(chosen)]
 
 
-def build_messages(source: str, count: int) -> list[dict[str, str]]:
+def build_messages(source: str, count: int, angle: str | None = None) -> list[dict[str, str]]:
+    focus = angle or random.choice(PEDAGOGICAL_ANGLES)
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {
             "role": "user",
             "content": (
-                f"Create up to {count} flashcards from the retrieved excerpts. "
-                "If the excerpts only support fewer distinct cards, return fewer.\n\n"
-                f"Excerpts:\n\n{source}"
+                f"Create up to {count} flashcards from the retrieved excerpts.\n"
+                f"Pedagogical focus for this set: {focus}\n"
+                "If the excerpts contain little substantive content, produce fewer cards rather than inventing material.\n\n"
+                f"Here are the excerpts to process:\n\"\"\"\n{source}\n\"\"\""
             ),
         },
     ]
